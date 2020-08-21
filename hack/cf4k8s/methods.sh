@@ -4,13 +4,6 @@ function latest_cluster_version() {
   gcloud container get-server-config --zone us-west1-a --project ${GKE_GCP_PROJECT} 2>/dev/null | yq .validMasterVersions[0] -r
 }
 
-function credhub_get_gcp_service_account_key() {
-  source ~/workspace/networking-oss-deployments/scripts/script_helpers.sh
-  concourse_credhub_login
-  credhub get -n /concourse/cf-k8s/gcp_gcr_service_account_key -j | jq -r .value > /tmp/cf-k8s-networking-service-account-key.json
-  export GCP_SERVICE_ACCOUNT_KEY=/tmp/cf-k8s-networking-service-account-key.json
-}
-
 function create_and_target_huge_cluster() {
     if gcloud container clusters describe ${CLUSTER_NAME} --project ${GKE_GCP_PROJECT} --zone us-west1-a > /dev/null; then
         echo "${CLUSTER_NAME} already exists! Continuing..."
@@ -52,7 +45,7 @@ function deploy_cf_for_k8s() {
         CLUSTER_CONFIG_PATH="/tmp/${CLUSTER_NAME}"
         mkdir -p "${CLUSTER_CONFIG_PATH}"
         if [ ! -f "${CLUSTER_CONFIG_PATH}/cf-values.yml" ]; then
-          ./hack/generate-values.sh -d ${CF_DOMAIN} -g "${GCP_SERVICE_ACCOUNT_KEY}" > "${CLUSTER_CONFIG_PATH}/cf-values.yml"
+          ./hack/generate-values.sh -d ${CF_DOMAIN} > "${CLUSTER_CONFIG_PATH}/cf-values.yml"
 
           yq -r '.| {"kubeconfig_path": "/Users/user/.kube/config",  "api": ("api." + .system_domain), "admin_user":"admin", "admin_password": .cf_admin_password, "apps_domain": .app_domains[0]}' /tmp/${CLUSTER_NAME}/cf-values.yml > "${CLUSTER_CONFIG_PATH}/acceptance_config.json"
         fi
