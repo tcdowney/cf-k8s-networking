@@ -21,15 +21,16 @@ import (
 )
 
 var (
-	kubectl   *KubeCtl
 	TestSetup *workflowhelpers.ReproducibleTestSuiteSetup
+	TestConfig *cfg.Config
+	kubectl   *KubeCtl
 	globals   *Globals
 )
 
 func TestAcceptance(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	config, err := cfg.NewConfig(
+	TestConfig, err := cfg.NewConfig(
 		os.Getenv("CONFIG"),
 		os.Getenv("KUBECONFIG"),
 		os.Getenv("CONFIG_KEEP_CLUSTER") != "",
@@ -38,11 +39,11 @@ func TestAcceptance(t *testing.T) {
 
 	if err != nil {
 		defer GinkgoRecover()
-		fmt.Println("Failed to load config.")
+		fmt.Println("Failed to load TestConfig.")
 		t.Fail()
 	}
 
-	kubectl = &KubeCtl{kubeConfigPath: config.KubeConfigPath}
+	kubectl = &KubeCtl{kubeConfigPath: TestConfig.KubeConfigPath}
 
 	var _ = SynchronizedBeforeSuite(func() []byte {
 		_, err := kubectl.Run("cluster-info")
@@ -50,7 +51,7 @@ func TestAcceptance(t *testing.T) {
 			panic(err)
 		}
 
-		TestSetup = workflowhelpers.NewTestSuiteSetup(config)
+		TestSetup = workflowhelpers.NewTestSuiteSetup(TestConfig)
 		TestSetup.Setup()
 		workflowhelpers.AsUser(TestSetup.AdminUserContext(), time.Minute, func() {
 			Eventually(cf.Cf("enable-feature-flag", "diego_docker")).Should(gexec.Exit(0))
@@ -59,7 +60,7 @@ func TestAcceptance(t *testing.T) {
 		g := &Globals{}
 		g.SysComponentSelector = createSystemComponent()
 		g.AppGuid = pushApp(generator.PrefixedRandomName("ACCEPTANCE", "app"))
-		g.AppsDomain = config.AppsDomain
+		g.AppsDomain = TestConfig.AppsDomain
 
 		data, err := g.Serialize()
 		if err != nil {
@@ -79,11 +80,11 @@ func TestAcceptance(t *testing.T) {
 	})
 
 	SynchronizedAfterSuite(func() {}, func() {
-		if TestSetup != nil && !config.KeepCFChanges {
+		if TestSetup != nil && !TestConfig.KeepCFChanges {
 			TestSetup.Teardown()
 		}
 
-		if !config.KeepClusterChanges {
+		if !TestConfig.KeepClusterChanges {
 			destroySystemComponent()
 		}
 	})
@@ -145,8 +146,7 @@ func pushDockerApp(name string, container string) string {
 		"-u", "http",
 		"--endpoint", "/",
 	)
-	// cf push does not exit 0 on cf-for-k8s yet because logcache is unreliable (stats server error)
-	Expect(session.Wait(120 * time.Second)).To(gexec.Exit())
+	Expect(session.Wait(TestConfig.CfPushDockerTimeoutDuration())).To(gexec.Exit(0), "expected cf push to succeed")
 
 	guid := strings.TrimSpace(string(cf.Cf("app", name, "--guid").Wait().Out.Contents()))
 
@@ -168,8 +168,7 @@ func pushApp(name string) string {
 		"-u", "http",
 		"--endpoint", "/",
 	)
-	// cf push does not exit 0 on cf-for-k8s yet because logcache is unreliable (stats server error)
-	Expect(session.Wait(120 * time.Second)).To(gexec.Exit())
+	Expect(session.Wait(TestConfig.CfPushDockerTimeoutDuration())).To(gexec.Exit(0), "expected cf push to succeed")
 
 	guid := strings.TrimSpace(string(cf.Cf("app", name, "--guid").Wait().Out.Contents()))
 
